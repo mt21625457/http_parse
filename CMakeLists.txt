@@ -10,8 +10,8 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# C++ standard requirements
-set(CMAKE_CXX_STANDARD 17)
+# C++ standard requirements - Force C++23
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -41,7 +41,7 @@ target_include_directories(http_parse INTERFACE
     $<INSTALL_INTERFACE:include>
 )
 
-target_compile_features(http_parse INTERFACE cxx_std_17)
+target_compile_features(http_parse INTERFACE cxx_std_23)
 
 # Feature detection
 include(CheckCXXSourceCompiles)

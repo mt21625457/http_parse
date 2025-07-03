@@ -1,254 +1,273 @@
 #pragma once
 
 #include "parser.hpp"
+#include "../detail/core_impl.hpp"
+#include <sstream>
 #include <algorithm>
 #include <cctype>
 #include <charconv>
 
 namespace co::http::v1 {
 
-inline std::optional<std::string_view> request::get_header(std::string_view name) const noexcept {
-    auto it = std::find_if(headers.begin(), headers.end(), 
-        [name](const header& h) { 
-            return std::equal(h.name.begin(), h.name.end(), name.begin(), name.end(),
-                [](char a, char b) { return std::tolower(a) == std::tolower(b); });
-        });
-    return it != headers.end() ? std::make_optional(std::string_view{it->value}) : std::nullopt;
+// =============================================================================
+// HTTP/1.x Parsing Implementation
+// =============================================================================
+
+namespace detail {
+
+inline std::pair<std::string_view, std::string_view> split_first(std::string_view str, char delimiter) {
+    auto pos = str.find(delimiter);
+    if (pos == std::string_view::npos) {
+        return {str, {}};
+    }
+    return {str.substr(0, pos), str.substr(pos + 1)};
 }
 
-inline void request::add_header(std::string name, std::string value) {
-    headers.emplace_back(std::move(name), std::move(value));
+inline std::string_view trim(std::string_view str) {
+    auto start = str.find_first_not_of(" \t\r\n");
+    if (start == std::string_view::npos) {
+        return {};
+    }
+    auto end = str.find_last_not_of(" \t\r\n");
+    return str.substr(start, end - start + 1);
 }
 
-inline std::optional<std::string_view> response::get_header(std::string_view name) const noexcept {
-    auto it = std::find_if(headers.begin(), headers.end(), 
-        [name](const header& h) { 
-            return std::equal(h.name.begin(), h.name.end(), name.begin(), name.end(),
-                [](char a, char b) { return std::tolower(a) == std::tolower(b); });
-        });
-    return it != headers.end() ? std::make_optional(std::string_view{it->value}) : std::nullopt;
-}
-
-inline void response::add_header(std::string name, std::string value) {
-    headers.emplace_back(std::move(name), std::move(value));
-}
-
-inline std::expected<size_t, error_code> parser::parse_request(std::span<const char> data, request& req) {
-    if (data.empty()) {
+inline std::expected<request, error_code> parse_http1_request(std::string_view data) {
+    request req;
+    
+    // Find first line (request line)
+    auto line_end = data.find("\r\n");
+    if (line_end == std::string_view::npos) {
         return std::unexpected(error_code::need_more_data);
     }
     
-    size_t consumed = 0;
+    auto request_line = data.substr(0, line_end);
     
-    while (consumed < data.size() && !complete_) {
-        auto remaining = data.subspan(consumed);
+    // Parse method
+    auto [method_str, rest1] = split_first(request_line, ' ');
+    if (rest1.empty()) {
+        return std::unexpected(error_code::invalid_method);
+    }
+    req.set_method(method_str);
+    
+    // Parse URI
+    auto [uri_str, version_str] = split_first(rest1, ' ');
+    if (version_str.empty()) {
+        return std::unexpected(error_code::invalid_uri);
+    }
+    req.uri = uri_str;
+    req.target = uri_str; // For HTTP/2 compatibility
+    
+    // Parse version
+    if (version_str == "HTTP/1.0") {
+        req.protocol_version = version::http_1_0;
+    } else if (version_str == "HTTP/1.1") {
+        req.protocol_version = version::http_1_1;
+    } else {
+        return std::unexpected(error_code::invalid_version);
+    }
+    
+    // Parse headers
+    size_t pos = line_end + 2;
+    while (pos < data.size()) {
+        auto header_line_end = data.find("\r\n", pos);
+        if (header_line_end == std::string_view::npos) {
+            return std::unexpected(error_code::need_more_data);
+        }
         
-        switch (state_) {
-            case state::start:
-            case state::method:
-            case state::uri:
-            case state::version: {
-                auto result = parse_request_line(remaining, req);
-                if (!result) return result;
-                consumed += *result;
-                if (state_ == state::version) {
-                    state_ = state::header_name;
+        auto header_line = data.substr(pos, header_line_end - pos);
+        if (header_line.empty()) {
+            // Empty line indicates end of headers
+            pos = header_line_end + 2;
+            break;
+        }
+        
+        auto [name, value] = split_first(header_line, ':');
+        if (value.empty()) {
+            return std::unexpected(error_code::invalid_header);
+        }
+        
+        req.add_header(std::string(trim(name)), std::string(trim(value)));
+        pos = header_line_end + 2;
+    }
+    
+    // Parse body if present
+    if (pos < data.size()) {
+        auto content_length_hdr = req.get_header("content-length");
+        if (content_length_hdr) {
+            size_t content_length;
+            auto result = std::from_chars(content_length_hdr->data(), 
+                                        content_length_hdr->data() + content_length_hdr->size(), 
+                                        content_length);
+            if (result.ec == std::errc{}) {
+                if (data.size() - pos >= content_length) {
+                    req.body = std::string(data.substr(pos, content_length));
+                } else {
+                    return std::unexpected(error_code::need_more_data);
                 }
-                break;
             }
-            
-            case state::header_name:
-            case state::header_value: {
-                auto result = parse_headers(remaining, req.headers);
-                if (!result) return result;
-                consumed += *result;
-                if (state_ == state::body) {
-                    auto content_len = req.get_header("content-length");
-                    if (content_len) {
-                        std::from_chars(content_len->data(), content_len->data() + content_len->size(), content_length_);
-                    }
-                    
-                    auto transfer_encoding = req.get_header("transfer-encoding");
-                    if (transfer_encoding && transfer_encoding->find("chunked") != std::string_view::npos) {
-                        chunked_ = true;
-                    }
-                }
-                break;
-            }
-            
-            case state::body: {
-                auto result = parse_body(remaining, req.body);
-                if (!result) return result;
-                consumed += *result;
-                break;
-            }
-            
-            case state::complete:
-                complete_ = true;
-                break;
+        } else {
+            // No content-length, assume rest is body
+            req.body = std::string(data.substr(pos));
         }
     }
     
-    return consumed;
+    return req;
 }
 
-inline std::expected<size_t, error_code> parser::parse_response(std::span<const char> data, response& resp) {
-    if (data.empty()) {
+inline std::expected<response, error_code> parse_http1_response(std::string_view data) {
+    response resp;
+    
+    // Find first line (status line)
+    auto line_end = data.find("\r\n");
+    if (line_end == std::string_view::npos) {
         return std::unexpected(error_code::need_more_data);
     }
     
-    size_t consumed = 0;
+    auto status_line = data.substr(0, line_end);
     
-    while (consumed < data.size() && !complete_) {
-        auto remaining = data.subspan(consumed);
+    // Parse version
+    auto [version_str, rest1] = split_first(status_line, ' ');
+    if (rest1.empty()) {
+        return std::unexpected(error_code::invalid_version);
+    }
+    
+    if (version_str == "HTTP/1.0") {
+        resp.protocol_version = version::http_1_0;
+    } else if (version_str == "HTTP/1.1") {
+        resp.protocol_version = version::http_1_1;
+    } else {
+        return std::unexpected(error_code::invalid_version);
+    }
+    
+    // Parse status code
+    auto [status_str, reason_str] = split_first(rest1, ' ');
+    auto result = std::from_chars(status_str.data(), status_str.data() + status_str.size(), resp.status_code);
+    if (result.ec != std::errc{}) {
+        return std::unexpected(error_code::protocol_error);
+    }
+    
+    if (!reason_str.empty()) {
+        resp.reason_phrase = reason_str;
+    }
+    
+    // Parse headers and body (same logic as request)
+    size_t pos = line_end + 2;
+    while (pos < data.size()) {
+        auto header_line_end = data.find("\r\n", pos);
+        if (header_line_end == std::string_view::npos) {
+            return std::unexpected(error_code::need_more_data);
+        }
         
-        switch (state_) {
-            case state::start: {
-                auto result = parse_status_line(remaining, resp);
-                if (!result) return result;
-                consumed += *result;
-                state_ = state::header_name;
-                break;
-            }
-            
-            case state::header_name:
-            case state::header_value: {
-                auto result = parse_headers(remaining, resp.headers);
-                if (!result) return result;
-                consumed += *result;
-                if (state_ == state::body) {
-                    auto content_len = resp.get_header("content-length");
-                    if (content_len) {
-                        std::from_chars(content_len->data(), content_len->data() + content_len->size(), content_length_);
-                    }
-                    
-                    auto transfer_encoding = resp.get_header("transfer-encoding");
-                    if (transfer_encoding && transfer_encoding->find("chunked") != std::string_view::npos) {
-                        chunked_ = true;
-                    }
+        auto header_line = data.substr(pos, header_line_end - pos);
+        if (header_line.empty()) {
+            pos = header_line_end + 2;
+            break;
+        }
+        
+        auto [name, value] = split_first(header_line, ':');
+        if (value.empty()) {
+            return std::unexpected(error_code::invalid_header);
+        }
+        
+        resp.add_header(std::string(trim(name)), std::string(trim(value)));
+        pos = header_line_end + 2;
+    }
+    
+    // Parse body
+    if (pos < data.size()) {
+        auto content_length_hdr = resp.get_header("content-length");
+        if (content_length_hdr) {
+            size_t content_length;
+            auto result = std::from_chars(content_length_hdr->data(), 
+                                        content_length_hdr->data() + content_length_hdr->size(), 
+                                        content_length);
+            if (result.ec == std::errc{}) {
+                if (data.size() - pos >= content_length) {
+                    resp.body = std::string(data.substr(pos, content_length));
+                } else {
+                    return std::unexpected(error_code::need_more_data);
                 }
-                break;
             }
-            
-            case state::body: {
-                auto result = parse_body(remaining, resp.body);
-                if (!result) return result;
-                consumed += *result;
-                break;
-            }
-            
-            case state::complete:
-                complete_ = true;
-                break;
+        } else {
+            resp.body = std::string(data.substr(pos));
         }
     }
     
-    return consumed;
+    return resp;
+}
+
+} // namespace detail
+
+// =============================================================================
+// Public Interface Implementation
+// =============================================================================
+
+inline std::expected<request, error_code> parser::parse_request(std::string_view data) {
+    return detail::parse_http1_request(data);
+}
+
+inline std::expected<response, error_code> parser::parse_response(std::string_view data) {
+    return detail::parse_http1_response(data);
+}
+
+inline std::expected<size_t, error_code> parser::parse_request_incremental(std::span<const char> data, request& req) {
+    std::string_view data_view{data.data(), data.size()};
+    auto result = detail::parse_http1_request(data_view);
+    if (result) {
+        req = std::move(*result);
+        parse_complete_ = true;
+        detected_version_ = req.protocol_version;
+        return data.size();
+    } else {
+        if (result.error() == error_code::need_more_data) {
+            needs_more_data_ = true;
+        }
+        return std::unexpected(result.error());
+    }
+}
+
+inline std::expected<size_t, error_code> parser::parse_response_incremental(std::span<const char> data, response& resp) {
+    std::string_view data_view{data.data(), data.size()};
+    auto result = detail::parse_http1_response(data_view);
+    if (result) {
+        resp = std::move(*result);
+        parse_complete_ = true;
+        detected_version_ = resp.protocol_version;
+        return data.size();
+    } else {
+        if (result.error() == error_code::need_more_data) {
+            needs_more_data_ = true;
+        }
+        return std::unexpected(result.error());
+    }
+}
+
+inline bool parser::is_parse_complete() const noexcept {
+    return parse_complete_;
+}
+
+inline bool parser::needs_more_data() const noexcept {
+    return needs_more_data_;
+}
+
+inline version parser::detected_version() const noexcept {
+    return detected_version_;
 }
 
 inline void parser::reset() noexcept {
-    state_ = state::start;
-    parsed_bytes_ = 0;
-    complete_ = false;
+    reset_state();
+}
+
+inline void parser::reset_state() {
+    state_ = parse_state::method;
+    parse_complete_ = false;
+    needs_more_data_ = false;
+    current_header_name_.clear();
     content_length_ = 0;
-    chunked_ = false;
-}
-
-inline std::expected<size_t, error_code> parser::parse_request_line(std::span<const char> data, request& req) {
-    auto line_end = find_line_end(data);
-    if (!line_end) {
-        return std::unexpected(error_code::need_more_data);
-    }
-    
-    std::string_view line{data.data(), *line_end};
-    
-    // Parse method
-    auto method_end = line.find(' ');
-    if (method_end == std::string_view::npos) {
-        return std::unexpected(error_code::invalid_method);
-    }
-    
-    req.method_val = parse_method(line.substr(0, method_end));
-    if (req.method_val == method::unknown) {
-        return std::unexpected(error_code::invalid_method);
-    }
-    
-    // Parse URI
-    auto uri_start = method_end + 1;
-    auto uri_end = line.find(' ', uri_start);
-    if (uri_end == std::string_view::npos) {
-        return std::unexpected(error_code::invalid_uri);
-    }
-    
-    req.uri = line.substr(uri_start, uri_end - uri_start);
-    
-    // Parse version
-    auto version_start = uri_end + 1;
-    req.version = line.substr(version_start);
-    
-    if (!req.version.starts_with("HTTP/")) {
-        return std::unexpected(error_code::invalid_version);
-    }
-    
-    return *line_end + 2; // +2 for CRLF
-}
-
-inline std::expected<size_t, error_code> parser::parse_status_line(std::span<const char> data, response& resp) {
-    auto line_end = find_line_end(data);
-    if (!line_end) {
-        return std::unexpected(error_code::need_more_data);
-    }
-    
-    std::string_view line{data.data(), *line_end};
-    
-    // Parse version
-    auto version_end = line.find(' ');
-    if (version_end == std::string_view::npos) {
-        return std::unexpected(error_code::invalid_version);
-    }
-    
-    resp.version = line.substr(0, version_end);
-    
-    // Parse status code
-    auto status_start = version_end + 1;
-    auto status_end = line.find(' ', status_start);
-    if (status_end == std::string_view::npos) {
-        return std::unexpected(error_code::bad_request);
-    }
-    
-    auto status_str = line.substr(status_start, status_end - status_start);
-    auto [ptr, ec] = std::from_chars(status_str.data(), status_str.data() + status_str.size(), resp.status_code);
-    if (ec != std::errc{}) {
-        return std::unexpected(error_code::bad_request);
-    }
-    
-    // Parse reason phrase
-    auto reason_start = status_end + 1;
-    resp.reason_phrase = line.substr(reason_start);
-    
-    return *line_end + 2; // +2 for CRLF
-}
-
-inline method parser::parse_method(std::string_view method_str) const noexcept {
-    if (method_str == "GET") return method::get;
-    if (method_str == "POST") return method::post;
-    if (method_str == "PUT") return method::put;
-    if (method_str == "DELETE") return method::delete_;
-    if (method_str == "HEAD") return method::head;
-    if (method_str == "OPTIONS") return method::options;
-    if (method_str == "TRACE") return method::trace;
-    if (method_str == "CONNECT") return method::connect;
-    if (method_str == "PATCH") return method::patch;
-    return method::unknown;
-}
-
-inline std::optional<size_t> parser::find_line_end(std::span<const char> data) const noexcept {
-    for (size_t i = 0; i < data.size() - 1; ++i) {
-        if (data[i] == '\r' && data[i + 1] == '\n') {
-            return i;
-        }
-    }
-    return std::nullopt;
+    body_bytes_read_ = 0;
+    chunked_encoding_ = false;
+    connection_close_ = false;
 }
 
 } // namespace co::http::v1

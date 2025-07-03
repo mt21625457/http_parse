@@ -1,25 +1,49 @@
 #pragma once
 
-#include "../core.hpp"
+#include "core.hpp"
+#include "v1/parser.hpp"
+#include "v2/parser.hpp"
+#include <memory>
 #include <functional>
-#include <unordered_map>
 
-namespace co::http::v2 {
+namespace co::http {
 
 // =============================================================================
-// HTTP/2 Parser Interface
+// Unified Parser Interface
 // =============================================================================
 
 class parser {
 public:
-    parser() = default;
-    ~parser() = default;
+    explicit parser(version ver = version::auto_detect);
+    ~parser();
     
     // Non-copyable, movable
     parser(const parser&) = delete;
     parser& operator=(const parser&) = delete;
-    parser(parser&&) = default;
-    parser& operator=(parser&&) = default;
+    parser(parser&&) noexcept;
+    parser& operator=(parser&&) noexcept;
+    
+    // =============================================================================
+    // HTTP/1.x Parsing Interface
+    // =============================================================================
+    
+    // Parse complete messages
+    std::expected<request, error_code> parse_request(std::string_view data);
+    std::expected<response, error_code> parse_response(std::string_view data);
+    
+    // Incremental parsing
+    std::expected<size_t, error_code> parse_request_incremental(std::span<const char> data, request& req);
+    std::expected<size_t, error_code> parse_response_incremental(std::span<const char> data, response& resp);
+    
+    // Parsing state
+    bool is_parse_complete() const noexcept;
+    bool needs_more_data() const noexcept;
+    version detected_version() const noexcept;
+    void reset() noexcept;
+    
+    // =============================================================================
+    // HTTP/2 Parsing Interface
+    // =============================================================================
     
     // Stream-based callbacks for HTTP/2
     using stream_request_callback = std::function<void(uint32_t stream_id, const request& req)>;
@@ -42,37 +66,24 @@ public:
     void set_goaway_callback(goaway_callback callback);
     
     // Parse HTTP/2 frames
-    std::expected<size_t, error_code> parse_frames(std::span<const uint8_t> data);
+    std::expected<size_t, error_code> parse_h2_frames(std::span<const uint8_t> data);
     
     // Parse connection preface
-    std::expected<size_t, error_code> parse_preface(std::span<const uint8_t> data);
+    std::expected<size_t, error_code> parse_h2_preface(std::span<const uint8_t> data);
     
     // HTTP/2 Configuration
-    void set_max_frame_size(uint32_t size) { max_frame_size_ = size; }
-    void set_max_header_list_size(uint32_t size) { max_header_list_size_ = size; }
-    uint32_t get_max_frame_size() const noexcept { return max_frame_size_; }
-    uint32_t get_max_header_list_size() const noexcept { return max_header_list_size_; }
+    void set_h2_max_frame_size(uint32_t size);
+    void set_h2_max_header_list_size(uint32_t size);
+    uint32_t get_h2_max_frame_size() const noexcept;
+    uint32_t get_h2_max_header_list_size() const noexcept;
     
 private:
-    class impl;
-    std::unique_ptr<impl> pimpl_;
-    
-    // HTTP/2 callbacks
-    stream_request_callback stream_request_cb_;
-    stream_response_callback stream_response_cb_;
-    stream_data_callback stream_data_cb_;
-    stream_error_callback stream_error_cb_;
-    connection_error_callback connection_error_cb_;
-    settings_callback settings_cb_;
-    ping_callback ping_cb_;
-    goaway_callback goaway_cb_;
-    
-    // HTTP/2 settings
-    uint32_t max_frame_size_ = 16384;
-    uint32_t max_header_list_size_ = 8192;
+    version version_;
+    std::unique_ptr<v1::parser> v1_parser_;
+    std::unique_ptr<v2::parser> v2_parser_;
 };
 
-} // namespace co::http::v2
+} // namespace co::http
 
 // Include implementation
-#include "parser_impl.hpp"
+#include "detail/parser_impl.hpp"
