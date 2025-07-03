@@ -1,0 +1,153 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "default",
+            "displayName": "Default Configuration",
+            "description": "Default build configuration with C++17",
+            "generator": "Unix Makefiles",
+            "binaryDir": "${sourceDir}/build/default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_CXX_STANDARD": "17",
+                "HTTP_PARSE_BUILD_EXAMPLES": "ON",
+                "HTTP_PARSE_BUILD_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "debug",
+            "displayName": "Debug Configuration",
+            "description": "Debug build with examples and tests",
+            "generator": "Unix Makefiles",
+            "binaryDir": "${sourceDir}/build/debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CXX_STANDARD": "17",
+                "HTTP_PARSE_BUILD_EXAMPLES": "ON",
+                "HTTP_PARSE_BUILD_TESTS": "ON"
+            }
+        },
+        {
+            "name": "cxx20",
+            "displayName": "C++20 Configuration",
+            "description": "C++20 build with modern features",
+            "generator": "Unix Makefiles",
+            "binaryDir": "${sourceDir}/build/cxx20",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_CXX_STANDARD": "20",
+                "HTTP_PARSE_BUILD_EXAMPLES": "ON",
+                "HTTP_PARSE_BUILD_TESTS": "ON"
+            }
+        },
+        {
+            "name": "cxx23",
+            "displayName": "C++23 Configuration",
+            "description": "C++23 build with latest features",
+            "generator": "Unix Makefiles",
+            "binaryDir": "${sourceDir}/build/cxx23",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_CXX_STANDARD": "23",
+                "HTTP_PARSE_BUILD_EXAMPLES": "ON",
+                "HTTP_PARSE_BUILD_TESTS": "ON",
+                "HTTP_PARSE_ENABLE_CXX23": "ON"
+            }
+        },
+        {
+            "name": "minimal",
+            "displayName": "Minimal Configuration",
+            "description": "Header-only library without examples or tests",
+            "generator": "Unix Makefiles",
+            "binaryDir": "${sourceDir}/build/minimal",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_CXX_STANDARD": "17",
+                "HTTP_PARSE_BUILD_EXAMPLES": "OFF",
+                "HTTP_PARSE_BUILD_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "development",
+            "displayName": "Development Configuration",
+            "description": "Development build with all features enabled",
+            "generator": "Unix Makefiles",
+            "binaryDir": "${sourceDir}/build/dev",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CXX_STANDARD": "23",
+                "HTTP_PARSE_BUILD_EXAMPLES": "ON",
+                "HTTP_PARSE_BUILD_TESTS": "ON",
+                "HTTP_PARSE_ENABLE_CXX23": "ON",
+                "CMAKE_VERBOSE_MAKEFILE": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "default",
+            "configurePreset": "default",
+            "displayName": "Default Build",
+            "description": "Build with default configuration"
+        },
+        {
+            "name": "debug",
+            "configurePreset": "debug",
+            "displayName": "Debug Build",
+            "description": "Build debug configuration"
+        },
+        {
+            "name": "cxx20",
+            "configurePreset": "cxx20",
+            "displayName": "C++20 Build",
+            "description": "Build with C++20 features"
+        },
+        {
+            "name": "cxx23",
+            "configurePreset": "cxx23",
+            "displayName": "C++23 Build",
+            "description": "Build with C++23 features"
+        },
+        {
+            "name": "minimal",
+            "configurePreset": "minimal",
+            "displayName": "Minimal Build",
+            "description": "Build header-only library"
+        },
+        {
+            "name": "development",
+            "configurePreset": "development",
+            "displayName": "Development Build",
+            "description": "Build development configuration"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "default",
+            "configurePreset": "debug",
+            "displayName": "Default Test",
+            "description": "Run tests with default configuration",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "cxx20",
+            "configurePreset": "cxx20",
+            "displayName": "C++20 Test",
+            "description": "Run tests with C++20 features",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "cxx23",
+            "configurePreset": "cxx23",
+            "displayName": "C++23 Test",
+            "description": "Run tests with C++23 features",
+            "output": {
+                "outputOnFailure": true
+            }
+        }
+    ]
+}
