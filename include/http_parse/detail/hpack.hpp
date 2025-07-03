@@ -235,3 +235,6 @@ inline const std::array<huffman_entry, 257> huffman_table = {{
 }};
 
 } // namespace co::http::detail
+
+// Include implementation
+#include "hpack_impl.hpp"

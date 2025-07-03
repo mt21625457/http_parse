@@ -3,6 +3,7 @@
 #include "../core.hpp"
 #include <cstdint>
 #include <array>
+#include <unordered_map>
 
 namespace co::http::v2 {
 

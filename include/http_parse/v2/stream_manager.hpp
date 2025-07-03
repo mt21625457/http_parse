@@ -31,39 +31,39 @@ public:
     std::expected<stream_info*, h2_error_code> create_stream(uint32_t stream_id, bool is_server = false) {
         // Validate stream ID
         if (stream_id == 0) {
-            return std::unexpected(h2_error_code::protocol_error);
+            return std::unexpected{h2_error_code::protocol_error};
         }
         
         // Check for valid stream ID ordering
         if (is_server) {
             if (stream_id % 2 != 0) { // Server streams must be even
-                return std::unexpected(h2_error_code::protocol_error);
+                return std::unexpected{h2_error_code::protocol_error};
             }
         } else {
             if (stream_id % 2 == 0) { // Client streams must be odd
-                return std::unexpected(h2_error_code::protocol_error);
+                return std::unexpected{h2_error_code::protocol_error};
             }
         }
         
         // Check if stream already exists
         if (streams_.find(stream_id) != streams_.end()) {
-            return std::unexpected(h2_error_code::protocol_error);
+            return std::unexpected{h2_error_code::protocol_error};
         }
         
         // Check stream ID ordering (must be greater than previous)
         if (stream_id <= last_stream_id_) {
-            return std::unexpected(h2_error_code::protocol_error);
+            return std::unexpected{h2_error_code::protocol_error};
         }
         
         // Check concurrent streams limit
         if (active_streams_.size() >= settings_.max_concurrent_streams) {
-            return std::unexpected(h2_error_code::refused_stream);
+            return std::unexpected{h2_error_code::refused_stream};
         }
         
         // Create new stream
         auto [it, inserted] = streams_.emplace(stream_id, stream_info{});
         if (!inserted) {
-            return std::unexpected(h2_error_code::internal_error);
+            return std::unexpected{h2_error_code::internal_error};
         }
         
         auto& stream = it->second;
@@ -145,13 +145,13 @@ public:
     std::expected<void, h2_error_code> update_stream_window(uint32_t stream_id, int32_t delta) {
         auto* stream = get_stream(stream_id);
         if (!stream) {
-            return std::unexpected(h2_error_code::protocol_error);
+            return std::unexpected{h2_error_code::protocol_error};
         }
         
         // Check for overflow
         int64_t new_window = static_cast<int64_t>(stream->window_size) + delta;
         if (new_window > protocol_limits::max_window_size || new_window < 0) {
-            return std::unexpected(h2_error_code::flow_control_error);
+            return std::unexpected{h2_error_code::flow_control_error};
         }
         
         stream->window_size = static_cast<int32_t>(new_window);
@@ -162,12 +162,12 @@ public:
     std::expected<void, h2_error_code> update_remote_stream_window(uint32_t stream_id, int32_t delta) {
         auto* stream = get_stream(stream_id);
         if (!stream) {
-            return std::unexpected(h2_error_code::protocol_error);
+            return std::unexpected{h2_error_code::protocol_error};
         }
         
         int64_t new_window = static_cast<int64_t>(stream->remote_window_size) + delta;
         if (new_window > protocol_limits::max_window_size || new_window < 0) {
-            return std::unexpected(h2_error_code::flow_control_error);
+            return std::unexpected{h2_error_code::flow_control_error};
         }
         
         stream->remote_window_size = static_cast<int32_t>(new_window);
@@ -178,11 +178,11 @@ public:
     std::expected<uint32_t, h2_error_code> consume_stream_window(uint32_t stream_id, uint32_t size) {
         auto* stream = get_stream(stream_id);
         if (!stream) {
-            return std::unexpected(h2_error_code::protocol_error);
+            return std::unexpected{h2_error_code::protocol_error};
         }
         
         if (!stream->can_send_data()) {
-            return std::unexpected(h2_error_code::stream_closed);
+            return std::unexpected{h2_error_code::stream_closed};
         }
         
         // Calculate available window size
