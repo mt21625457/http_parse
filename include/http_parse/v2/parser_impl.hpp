@@ -14,7 +14,7 @@ namespace co::http::v2 {
 class parser::impl {
 public:
     // HPACK decoder
-    detail::hpack_decoder hpack_decoder_;
+    ::co::http::detail::hpack_decoder hpack_decoder_;
     
     impl() = default;
 };

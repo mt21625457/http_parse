@@ -111,7 +111,7 @@ void demo_http1_chunked_transfer() {
     
     auto bulk_request = http1::request()
         .method(method::post)
-        .target("/api/users/bulk-import")
+        .uri("/api/users/bulk-import")
         .header("Host", "api.example.com")
         .header("Content-Type", "application/json; charset=utf-8")
         .header("Content-Length", std::to_string(large_json.size()))
@@ -120,6 +120,10 @@ void demo_http1_chunked_transfer() {
         .body(large_json);
     
     auto encoded_request = http1::encode_request(bulk_request);
+    if (!encoded_request) {
+        std::cout << "   ✗ 请求编码失败\n";
+        return;
+    }
     std::cout << "   ✓ 大型请求构建完成 (" << encoded_request->size() << " 字节)\n";
     
     // 2. 将请求分块传输
@@ -156,7 +160,7 @@ void demo_http1_chunked_transfer() {
         auto packets = network.receive_available_packets();
         for (const auto& packet_data : packets) {
             std::string chunk(packet_data.begin(), packet_data.end());
-            auto parse_result = server_parser.parse(chunk, received_request);
+            auto parse_result = server_parser.parse(std::string_view(chunk), received_request);
             
             if (parse_result) {
                 total_received += *parse_result;
@@ -169,9 +173,9 @@ void demo_http1_chunked_transfer() {
                     std::cout << "   ✅ 请求接收完成! 耗时: " << duration.count() << "ms\n";
                     std::cout << "   📊 接收统计:\n";
                     std::cout << "      - 总字节数: " << total_received << "\n";
-                    std::cout << "      - 请求方法: " << static_cast<int>(received_request.method_) << "\n";
-                    std::cout << "      - 请求路径: " << received_request.target_ << "\n";
-                    std::cout << "      - 请求体大小: " << received_request.body_.size() << " 字节\n";
+                    std::cout << "      - 请求方法: " << static_cast<int>(received_request.method_type) << "\n";
+                    std::cout << "      - 请求路径: " << received_request.target << "\n";
+                    std::cout << "      - 请求体大小: " << received_request.body.size() << " 字节\n";
                     break;
                 }
             } else {
@@ -195,7 +199,7 @@ void demo_http1_chunked_transfer() {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     
     auto processing_response = http1::response()
-        .status(status_code::accepted)
+        .status(202)
         .header("Content-Type", "application/json")
         .header("Server", "BulkProcessor/1.0")
         .header("X-Request-ID", "req_12345")
@@ -210,6 +214,10 @@ void demo_http1_chunked_transfer() {
 })");
     
     auto response_data = http1::encode_response(processing_response);
+    if (!response_data) {
+        std::cout << "   ✗ 响应编码失败\n";
+        return;
+    }
     std::cout << "   ✓ 响应生成完成 (" << response_data->size() << " 字节)\n";
     
     // 5. 响应分块返回
@@ -239,15 +247,15 @@ void demo_http1_chunked_transfer() {
         auto packets = network.receive_available_packets();
         for (const auto& packet_data : packets) {
             std::string chunk(packet_data.begin(), packet_data.end());
-            auto parse_result = client_parser.parse(chunk, received_response);
+            auto parse_result = client_parser.parse(std::string_view(chunk), received_response);
             
             if (parse_result) {
                 std::cout << "   📥 客户端解析 " << *parse_result << " 字节\n";
                 
                 if (client_parser.is_complete()) {
                     std::cout << "   ✅ 响应接收完成!\n";
-                    std::cout << "   📊 响应状态: " << static_cast<int>(received_response.status_code_) << "\n";
-                    std::cout << "   📊 响应体: " << received_response.body_ << "\n";
+                    std::cout << "   📊 响应状态: " << static_cast<int>(received_response.status_code) << "\n";
+                    std::cout << "   📊 响应体: " << received_response.body << "\n";
                     break;
                 }
             }
@@ -280,7 +288,7 @@ void demo_http2_concurrent_streams() {
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                 now - stream_start_times[stream_id]);
             std::cout << "📥 [Stream " << stream_id << "] 响应头 - 状态: " 
-                      << static_cast<int>(resp.status_code_) 
+                      << static_cast<int>(resp.status_code) 
                       << " (耗时: " << duration.count() << "ms)\n";
         }
     });
@@ -307,28 +315,28 @@ void demo_http2_concurrent_streams() {
     
     server.on_request([&](uint32_t stream_id, const request& req, bool end_stream) {
         std::cout << "📨 [Stream " << stream_id << "] 服务器收到请求: " 
-                  << static_cast<int>(req.method_) << " " << req.target_ << "\n";
+                  << static_cast<int>(req.method_type) << " " << req.target << "\n";
         server_requests[stream_id] = req;
         
         // 对于GET请求，立即响应
-        if (req.method_ == method::get && end_stream) {
+        if (req.method_type == method::get && end_stream) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10 + (stream_id % 50))); // 模拟处理时间
             
             std::string response_body;
-            status_code status = status_code::ok;
+            unsigned int status = 200;
             
-            if (req.target_ == "/api/users") {
+            if (req.target == "/api/users") {
                 response_body = R"({"users": [{"id": 1, "name": "张三"}, {"id": 2, "name": "李四"}]})";
-            } else if (req.target_ == "/api/products") {
+            } else if (req.target == "/api/products") {
                 response_body = R"({"products": [{"id": 101, "name": "笔记本电脑"}, {"id": 102, "name": "智能手机"}]})";
-            } else if (req.target_ == "/api/orders") {
+            } else if (req.target == "/api/orders") {
                 response_body = R"({"orders": [{"id": 1001, "user_id": 1, "total": 2999.99}]})";
-            } else if (req.target_.starts_with("/api/slow")) {
+            } else if (req.target.starts_with("/api/slow")) {
                 // 模拟慢请求
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
                 response_body = R"({"message": "慢请求处理完成", "processing_time": "200ms"})";
             } else {
-                status = status_code::not_found;
+                status = 404;
                 response_body = R"({"error": "资源未找到"})";
             }
             
@@ -354,14 +362,14 @@ void demo_http2_concurrent_streams() {
         if (end_stream && server_requests.find(stream_id) != server_requests.end()) {
             // 处理POST请求
             auto& req = server_requests[stream_id];
-            req.body_ = server_request_bodies[stream_id];
+            req.body = server_request_bodies[stream_id];
             
-            std::cout << "🔄 [Stream " << stream_id << "] 处理POST请求，体大小: " << req.body_.size() << "\n";
+            std::cout << "🔄 [Stream " << stream_id << "] 处理POST请求，体大小: " << req.body.size() << "\n";
             
             auto resp = http1::response()
-                .status(status_code::created)
+                .status(201)
                 .header("Content-Type", "application/json")
-                .header("Location", req.target_ + "/new_id")
+                .header("Location", req.target + "/new_id")
                 .body(R"({"status": "success", "message": "资源创建成功"})");
             
             auto resp_buffer = server.send_response(stream_id, resp);
@@ -410,7 +418,7 @@ void demo_http2_concurrent_streams() {
         
         auto req = http1::request()
             .method(req_info.method_type)
-            .target(req_info.target)
+            .uri(req_info.target)
             .header("User-Agent", "HTTP2-Concurrent-Demo/1.0")
             .header("Accept", "application/json");
         

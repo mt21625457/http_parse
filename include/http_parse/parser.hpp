@@ -78,6 +78,9 @@ public:
     uint32_t get_h2_max_header_list_size() const noexcept;
     
 private:
+    class impl;
+    std::unique_ptr<impl> pimpl_;
+    
     version version_;
     std::unique_ptr<v1::parser> v1_parser_;
     std::unique_ptr<v2::parser> v2_parser_;

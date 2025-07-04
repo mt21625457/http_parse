@@ -1,11 +1,10 @@
 #include <gtest/gtest.h>
 #include "http_parse.hpp"
-#include "http_parse/detail/buffer.hpp"
 #include <string>
 #include <vector>
 #include <span>
 
-using namespace co::http::detail;
+using namespace co::http;
 
 class BufferTest : public ::testing::Test {
 protected:

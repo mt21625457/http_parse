@@ -25,6 +25,10 @@ inline void output_buffer::append(const char* data, size_t size) {
     buffer_.append(data, size);
 }
 
+inline void output_buffer::append_byte(uint8_t byte) {
+    buffer_.push_back(static_cast<char>(byte));
+}
+
 inline void output_buffer::reserve(size_t capacity) {
     buffer_.reserve(capacity);
 }
@@ -54,6 +58,21 @@ inline void output_buffer::clear() noexcept {
 
 inline std::string output_buffer::release_string() {
     return std::move(buffer_);
+}
+
+inline std::string output_buffer::to_string() const {
+    return buffer_;
+}
+
+inline std::string_view output_buffer::view() const noexcept {
+    return std::string_view{buffer_};
+}
+
+inline std::span<const uint8_t> output_buffer::span() const noexcept {
+    return std::span<const uint8_t>{
+        reinterpret_cast<const uint8_t*>(buffer_.data()), 
+        buffer_.size()
+    };
 }
 
 } // namespace co::http

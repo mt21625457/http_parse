@@ -123,8 +123,8 @@ public:
     const stream_manager& get_stream_manager() const noexcept { return *stream_manager_; }
 
     // HPACK encoder/decoder access
-    detail::hpack_encoder& get_hpack_encoder() noexcept { return hpack_encoder_; }
-    detail::hpack_decoder& get_hpack_decoder() noexcept { return hpack_decoder_; }
+    ::co::http::detail::hpack_encoder& get_hpack_encoder() noexcept { return hpack_encoder_; }
+    ::co::http::detail::hpack_decoder& get_hpack_decoder() noexcept { return hpack_decoder_; }
 
     // Reset processor state
     void reset();
@@ -166,8 +166,8 @@ private:
 
     // Components
     std::unique_ptr<stream_manager> stream_manager_;
-    detail::hpack_encoder hpack_encoder_;
-    detail::hpack_decoder hpack_decoder_;
+    ::co::http::detail::hpack_encoder hpack_encoder_;
+    ::co::http::detail::hpack_decoder hpack_decoder_;
 
     // Callbacks
     headers_callback headers_callback_;

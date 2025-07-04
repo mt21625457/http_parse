@@ -802,25 +802,25 @@ public:
 
     // Convert request to headers
     std::vector<header> headers;
-    headers.emplace_back(":method", method_string(req.method_));
-    headers.emplace_back(":path", req.target_);
+    headers.emplace_back(":method", method_string(req.method_type));
+    headers.emplace_back(":path", req.target);
     headers.emplace_back(":scheme", "https"); // Default to HTTPS
 
-    for (const auto &h : req.headers_) {
+    for (const auto &h : req.headers) {
       headers.push_back(h);
     }
 
     auto result = processor_.generate_headers_frame(
-        stream_id, headers, end_stream && req.body_.empty(), true, buffer);
+        stream_id, headers, end_stream && req.body.empty(), true, buffer);
     if (!result) {
       return std::unexpected{result.error()};
     }
 
     // Send body if present
-    if (!req.body_.empty()) {
+    if (!req.body.empty()) {
       auto body_span = std::span<const uint8_t>(
-          reinterpret_cast<const uint8_t *>(req.body_.data()),
-          req.body_.size());
+          reinterpret_cast<const uint8_t *>(req.body.data()),
+          req.body.size());
       auto data_result = processor_.generate_data_frame(stream_id, body_span,
                                                         end_stream, buffer);
       if (!data_result) {
@@ -869,23 +869,23 @@ public:
     // Convert response to headers
     std::vector<header> headers;
     headers.emplace_back(":status",
-                         std::to_string(static_cast<int>(resp.status_code_)));
+                         std::to_string(static_cast<int>(resp.status_code)));
 
-    for (const auto &h : resp.headers_) {
+    for (const auto &h : resp.headers) {
       headers.push_back(h);
     }
 
     auto result = processor_.generate_headers_frame(
-        stream_id, headers, end_stream && resp.body_.empty(), true, buffer);
+        stream_id, headers, end_stream && resp.body.empty(), true, buffer);
     if (!result) {
       return std::unexpected{result.error()};
     }
 
     // Send body if present
-    if (!resp.body_.empty()) {
+    if (!resp.body.empty()) {
       auto body_span = std::span<const uint8_t>(
-          reinterpret_cast<const uint8_t *>(resp.body_.data()),
-          resp.body_.size());
+          reinterpret_cast<const uint8_t *>(resp.body.data()),
+          resp.body.size());
       auto data_result = processor_.generate_data_frame(stream_id, body_span,
                                                         end_stream, buffer);
       if (!data_result) {
@@ -1055,15 +1055,15 @@ private:
         request req;
         for (const auto &h : headers) {
           if (h.name == ":method") {
-            req.method_ = parse_method(h.value);
+            req.method_type = parse_method(h.value);
           } else if (h.name == ":path") {
-            req.target_ = h.value;
+            req.target = h.value;
           } else if (h.name == ":scheme") {
             // Store scheme if needed
           } else if (h.name == ":authority") {
-            req.headers_.emplace_back("host", h.value);
+            req.headers.emplace_back("host", h.value);
           } else if (!h.name.starts_with(':')) {
-            req.headers_.push_back(h);
+            req.headers.push_back(h);
           }
         }
 
@@ -1075,9 +1075,9 @@ private:
         response resp;
         for (const auto &h : headers) {
           if (h.name == ":status") {
-            resp.status_code_ = static_cast<status_code>(std::stoi(h.value));
+            resp.status_code = static_cast<unsigned int>(std::stoi(h.value));
           } else if (!h.name.starts_with(':')) {
-            resp.headers_.push_back(h);
+            resp.headers.push_back(h);
           }
         }
 

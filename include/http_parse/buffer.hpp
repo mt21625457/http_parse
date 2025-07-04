@@ -26,6 +26,7 @@ public:
     void append(std::string_view data);
     void append(std::span<const uint8_t> data);
     void append(const char* data, size_t size);
+    void append_byte(uint8_t byte);
     
     // Reserve capacity
     void reserve(size_t capacity);
@@ -41,6 +42,13 @@ public:
     
     // Transfer ownership
     std::string release_string();
+    
+    // Convert to string
+    std::string to_string() const;
+    
+    // View methods
+    std::string_view view() const noexcept;
+    std::span<const uint8_t> span() const noexcept;
     
 private:
     std::string buffer_;

@@ -32,11 +32,11 @@ void demo_http1_simple_parsing() {
     if (req_result) {
         const auto& req = *req_result;
         std::cout << "✓ 解析GET请求成功:\n";
-        std::cout << "  Method: " << static_cast<int>(req.method_) << "\n";
-        std::cout << "  Target: " << req.target_ << "\n";
-        std::cout << "  Version: " << static_cast<int>(req.version_) << "\n";
-        std::cout << "  Headers (" << req.headers_.size() << "):\n";
-        for (const auto& h : req.headers_) {
+        std::cout << "  Method: " << static_cast<int>(req.method_type) << "\n";
+        std::cout << "  Target: " << req.target << "\n";
+        std::cout << "  Version: " << static_cast<int>(req.protocol_version) << "\n";
+        std::cout << "  Headers (" << req.headers.size() << "):\n";
+        for (const auto& h : req.headers) {
             std::cout << "    " << h.name << ": " << h.value << "\n";
         }
     } else {
@@ -57,9 +57,9 @@ void demo_http1_simple_parsing() {
     if (post_result) {
         const auto& req = *post_result;
         std::cout << "\n✓ 解析POST请求成功:\n";
-        std::cout << "  Method: " << static_cast<int>(req.method_) << "\n";
-        std::cout << "  Target: " << req.target_ << "\n";
-        std::cout << "  Body: " << req.body_ << "\n";
+        std::cout << "  Method: " << static_cast<int>(req.method_type) << "\n";
+        std::cout << "  Target: " << req.target << "\n";
+        std::cout << "  Body: " << req.body << "\n";
     }
     
     // 3. 解析HTTP响应
@@ -77,9 +77,9 @@ void demo_http1_simple_parsing() {
     if (resp_result) {
         const auto& resp = *resp_result;
         std::cout << "\n✓ 解析HTTP响应成功:\n";
-        std::cout << "  Status: " << static_cast<int>(resp.status_code_) << "\n";
-        std::cout << "  Reason: " << resp.reason_phrase_ << "\n";
-        std::cout << "  Body: " << resp.body_ << "\n";
+        std::cout << "  Status: " << static_cast<int>(resp.status_code) << "\n";
+        std::cout << "  Reason: " << resp.reason_phrase << "\n";
+        std::cout << "  Body: " << resp.body << "\n";
     }
 }
 
@@ -120,7 +120,7 @@ void demo_http1_streaming_parsing() {
         const auto& chunk = chunks[i];
         std::cout << "  块 " << (i+1) << " (" << chunk.size() << " 字节): ";
         
-        auto result = parser.parse(chunk, req);
+        auto result = parser.parse(std::string_view(chunk), req);
         if (result) {
             total_parsed += *result;
             std::cout << "解析了 " << *result << " 字节";
@@ -140,9 +140,9 @@ void demo_http1_streaming_parsing() {
     if (parser.is_complete()) {
         std::cout << "\n✓ 流式解析完成!\n";
         std::cout << "  总共解析: " << total_parsed << " 字节\n";
-        std::cout << "  Method: " << static_cast<int>(req.method_) << "\n";
-        std::cout << "  Target: " << req.target_ << "\n";
-        std::cout << "  Body 长度: " << req.body_.size() << " 字节\n";
+        std::cout << "  Method: " << static_cast<int>(req.method_type) << "\n";
+        std::cout << "  Target: " << req.target << "\n";
+        std::cout << "  Body 长度: " << req.body.size() << " 字节\n";
     }
 }
 
@@ -152,7 +152,7 @@ void demo_http1_encoding() {
     // 1. 构建并编码GET请求
     auto get_req = http1::request()
         .method(method::get)
-        .target("/api/products?category=electronics&sort=price")
+        .uri("/api/products?category=electronics&sort=price")
         .version(version::http_1_1)
         .header("Host", "shop.example.com")
         .header("User-Agent", "HttpClient/2.0")
@@ -181,7 +181,7 @@ void demo_http1_encoding() {
     
     auto post_req = http1::request()
         .method(method::post)
-        .target("/api/products")
+        .uri("/api/products")
         .version(version::http_1_1)
         .header("Host", "shop.example.com")
         .header("Content-Type", "application/json; charset=utf-8")
@@ -208,8 +208,7 @@ void demo_http1_encoding() {
 })";
     
     auto response = http1::response()
-        .status(status_code::created)
-        .reason("Created")
+        .status(201, "Created")
         .version(version::http_1_1)
         .header("Content-Type", "application/json; charset=utf-8")
         .header("Content-Length", std::to_string(response_json.size()))
@@ -232,7 +231,7 @@ void demo_http1_high_performance() {
     // 使用高性能缓冲区避免字符串拷贝
     auto req = http1::request()
         .method(method::put)
-        .target("/api/users/123")
+        .uri("/api/users/123")
         .header("Host", "api.example.com")
         .header("Content-Type", "application/json")
         .body(R"({"name": "李四", "email": "lisi@example.com", "age": 28})");
@@ -289,7 +288,7 @@ void demo_http1_complete_communication() {
     std::cout << "1. 客户端构建登录请求:\n";
     auto login_req = http1::request()
         .method(method::post)
-        .target("/api/auth/login")
+        .uri("/api/auth/login")
         .header("Host", "auth.example.com")
         .header("Content-Type", "application/json")
         .header("User-Agent", "MobileApp/1.5.0")
@@ -310,7 +309,7 @@ void demo_http1_complete_communication() {
     request received_req;
     
     for (size_t i = 0; i < chunks.size(); ++i) {
-        auto parse_result = server_parser.parse(chunks[i], received_req);
+        auto parse_result = server_parser.parse(std::string_view(chunks[i]), received_req);
         std::cout << "   接收数据包 " << (i+1) << " (" << chunks[i].size() << " 字节)\n";
         
         if (server_parser.is_complete()) {
@@ -321,12 +320,12 @@ void demo_http1_complete_communication() {
     
     // 4. 服务器处理请求并构建响应
     std::cout << "\n4. 服务器处理并构建响应:\n";
-    std::cout << "   解析到的请求: " << received_req.target_ << "\n";
-    std::cout << "   请求体: " << received_req.body_ << "\n";
+    std::cout << "   解析到的请求: " << received_req.target << "\n";
+    std::cout << "   请求体: " << received_req.body << "\n";
     
     // 模拟验证成功
     auto login_resp = http1::response()
-        .status(status_code::ok)
+        .status(200)
         .header("Content-Type", "application/json")
         .header("Server", "AuthServer/2.1")
         .header("Set-Cookie", "session_id=abc123; HttpOnly; Secure")
@@ -350,11 +349,11 @@ void demo_http1_complete_communication() {
     auto client_resp = http1::parse_response(*resp_data);
     if (client_resp) {
         std::cout << "   ✓ 响应解析成功!\n";
-        std::cout << "   状态码: " << static_cast<int>(client_resp->status_code_) << "\n";
-        std::cout << "   响应体长度: " << client_resp->body_.size() << " 字节\n";
+        std::cout << "   状态码: " << static_cast<int>(client_resp->status_code) << "\n";
+        std::cout << "   响应体长度: " << client_resp->body.size() << " 字节\n";
         
         // 查找Set-Cookie头
-        for (const auto& h : client_resp->headers_) {
+        for (const auto& h : client_resp->headers) {
             if (h.name == "set-cookie") {
                 std::cout << "   设置Cookie: " << h.value << "\n";
             }

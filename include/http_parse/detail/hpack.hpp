@@ -25,6 +25,9 @@ public:
     
     void clear_dynamic_table();
     
+    // Static table (RFC 7541 Appendix B) - public for sharing with decoder
+    static const std::array<std::pair<std::string_view, std::string_view>, 61> static_table_;
+    
 private:
     struct dynamic_entry {
         std::string name;
@@ -35,9 +38,6 @@ private:
     uint32_t dynamic_table_size_ = 4096;
     std::vector<dynamic_entry> dynamic_table_;
     size_t dynamic_table_current_size_ = 0;
-    
-    // Static table (RFC 7541 Appendix B)
-    static const std::array<std::pair<std::string_view, std::string_view>, 61> static_table_;
     
     // Encoding methods
     size_t encode_indexed_header(size_t index, output_buffer& output);

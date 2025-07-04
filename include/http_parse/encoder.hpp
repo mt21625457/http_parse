@@ -86,6 +86,9 @@ public:
     uint32_t get_max_frame_size() const noexcept;
     
 private:
+    class impl;
+    std::unique_ptr<impl> pimpl_;
+    
     version version_;
     std::unique_ptr<v1::encoder> v1_encoder_;
     std::unique_ptr<v2::encoder> v2_encoder_;
