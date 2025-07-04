@@ -101,7 +101,7 @@ TEST_F(Http2FrameProcessorTest, ProcessDataFrame) {
                            1, payload);
     
     // 处理帧
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_TRUE(result.has_value());
     EXPECT_EQ(result.value(), frame.size());
     
@@ -114,7 +114,7 @@ TEST_F(Http2FrameProcessorTest, ProcessDataFrame) {
 
 TEST_F(Http2FrameProcessorTest, ProcessHeadersFrame) {
     // 设置回调
-    processor->set_headers_callback([this](uint32_t stream_id, const std::vector<header_field>& headers, bool end_stream) {
+    processor->set_headers_callback([this](uint32_t stream_id, const std::vector<co::http::header>& headers, bool end_stream, bool end_headers) {
         // 测试用简单验证
         EXPECT_EQ(stream_id, 1);
         EXPECT_TRUE(end_stream);
@@ -130,18 +130,18 @@ TEST_F(Http2FrameProcessorTest, ProcessHeadersFrame) {
     };
     
     auto frame = CreateFrame(frame_type::headers, 
-                           static_cast<uint8_t>(frame_flags::end_headers | frame_flags::end_stream), 
+                           static_cast<uint8_t>(frame_flags::end_headers) | static_cast<uint8_t>(frame_flags::end_stream), 
                            1, headers_data);
     
     // 处理帧
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_TRUE(result.has_value());
     EXPECT_EQ(result.value(), frame.size());
 }
 
 TEST_F(Http2FrameProcessorTest, ProcessSettingsFrame) {
     // 设置回调
-    processor->set_settings_callback([this](const std::vector<setting>& settings) {
+    processor->set_settings_callback([this](const std::vector<co::http::v2::setting>& settings) {
         EXPECT_EQ(settings.size(), 2);
         EXPECT_EQ(settings[0].id, static_cast<uint16_t>(settings_id::header_table_size));
         EXPECT_EQ(settings[0].value, 8192);
@@ -158,7 +158,7 @@ TEST_F(Http2FrameProcessorTest, ProcessSettingsFrame) {
     auto frame = CreateFrame(frame_type::settings, 0, 0, settings_data);
     
     // 处理帧
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_TRUE(result.has_value());
     EXPECT_EQ(result.value(), frame.size());
 }
@@ -176,7 +176,7 @@ TEST_F(Http2FrameProcessorTest, ProcessPingFrame) {
     auto frame = CreateFrame(frame_type::ping, 0, 0, ping_data);
     
     // 处理帧
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_TRUE(result.has_value());
     EXPECT_EQ(result.value(), frame.size());
 }
@@ -200,7 +200,7 @@ TEST_F(Http2FrameProcessorTest, ProcessGoAwayFrame) {
     auto frame = CreateFrame(frame_type::goaway, 0, 0, goaway_data);
     
     // 处理帧
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_TRUE(result.has_value());
     EXPECT_EQ(result.value(), frame.size());
 }
@@ -220,7 +220,7 @@ TEST_F(Http2FrameProcessorTest, InvalidFrameSize) {
     });
     
     // 处理帧应该失败
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_FALSE(result.has_value());
     
     // 应该收到错误
@@ -237,7 +237,7 @@ TEST_F(Http2FrameProcessorTest, InvalidStreamId) {
     // DATA帧不能使用流ID 0
     auto frame = CreateFrame(frame_type::data, 0, 0, {0x01, 0x02, 0x03});
     
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_FALSE(result.has_value());
     
     // 应该收到协议错误
@@ -255,7 +255,7 @@ TEST_F(Http2FrameProcessorTest, InvalidSettingsFrame) {
     std::vector<uint8_t> invalid_settings = {0x00, 0x01, 0x00, 0x00, 0x20}; // 缺少一个字节
     auto frame = CreateFrame(frame_type::settings, 0, 0, invalid_settings);
     
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_FALSE(result.has_value());
     
     // 应该收到帧大小错误
@@ -273,7 +273,7 @@ TEST_F(Http2FrameProcessorTest, InvalidPingFrame) {
     std::vector<uint8_t> invalid_ping = {0x01, 0x02, 0x03, 0x04}; // 只有4字节
     auto frame = CreateFrame(frame_type::ping, 0, 0, invalid_ping);
     
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_FALSE(result.has_value());
     
     // 应该收到帧大小错误
@@ -370,7 +370,7 @@ TEST_F(Http2FrameProcessorTest, SettingsAcknowledgment) {
     bool settings_ack_received = false;
     
     // 设置回调
-    processor->set_settings_callback([&settings_ack_received](const std::vector<setting>& settings) {
+    processor->set_settings_callback([&settings_ack_received](const std::vector<co::http::v2::setting>& settings) {
         if (settings.empty()) {
             settings_ack_received = true; // ACK帧没有设置
         }
@@ -382,7 +382,7 @@ TEST_F(Http2FrameProcessorTest, SettingsAcknowledgment) {
                            0, {});
     
     // 处理帧
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_TRUE(result.has_value());
     EXPECT_TRUE(settings_ack_received);
 }
@@ -404,7 +404,7 @@ TEST_F(Http2FrameProcessorTest, PingAcknowledgment) {
                            0, ping_data);
     
     // 处理帧
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_TRUE(result.has_value());
     EXPECT_TRUE(ping_ack_received);
 }
@@ -431,7 +431,7 @@ TEST_F(Http2FrameProcessorTest, WindowUpdateFrame) {
     auto frame = CreateFrame(frame_type::window_update, 0, 1, window_data);
     
     // 处理帧
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_TRUE(result.has_value());
     EXPECT_EQ(received_stream_id, 1);
     EXPECT_EQ(received_increment, 4096);
@@ -455,7 +455,7 @@ TEST_F(Http2FrameProcessorTest, RstStreamFrame) {
     auto frame = CreateFrame(frame_type::rst_stream, 0, 5, rst_data);
     
     // 处理帧
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_TRUE(result.has_value());
     EXPECT_EQ(received_stream_id, 5);
     EXPECT_EQ(received_error, h2_error_code::cancel);
@@ -488,7 +488,7 @@ TEST_F(Http2FrameProcessorTest, PriorityFrame) {
     auto frame = CreateFrame(frame_type::priority, 0, 1, priority_data);
     
     // 处理帧
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_TRUE(result.has_value());
     EXPECT_EQ(received_stream_id, 1);
     EXPECT_EQ(received_dependency, 3);
@@ -539,7 +539,7 @@ TEST_F(Http2FrameProcessorTest, LargeFrameProcessing) {
     auto frame = CreateFrame(frame_type::data, 0, 1, large_payload);
     
     // 处理帧
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_TRUE(result.has_value());
     EXPECT_EQ(result.value(), frame.size());
     EXPECT_TRUE(large_frame_received);
@@ -560,7 +560,7 @@ TEST_F(Http2FrameProcessorTest, ProcessorReset) {
     std::vector<uint8_t> payload(data.begin(), data.end());
     auto frame = CreateFrame(frame_type::data, 0, 1, payload);
     
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_TRUE(result.has_value());
     EXPECT_EQ(received_data.size(), 1);
     
@@ -585,7 +585,7 @@ TEST_F(Http2FrameProcessorTest, UnknownFrameType) {
     auto frame = CreateFrame(static_cast<frame_type>(0xFF), 0, 1, unknown_payload);
     
     // 处理帧
-    auto result = processor->process_frame(std::span<const uint8_t>(frame));
+    auto result = processor->process_frames(std::span<const uint8_t>(frame));
     EXPECT_TRUE(result.has_value());
     
     // 应该收到未知帧回调

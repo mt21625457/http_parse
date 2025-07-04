@@ -16,17 +16,19 @@ namespace co::http::v2 {
 class frame_processor {
 public:
     // Callback types for frame processing
-    using headers_callback = std::function<void(uint32_t stream_id, const std::vector<header>& headers, bool end_stream, bool end_headers)>;
+    using headers_callback = std::function<void(uint32_t stream_id, const std::vector<::co::http::header>& headers, bool end_stream, bool end_headers)>;
     using data_callback = std::function<void(uint32_t stream_id, std::span<const uint8_t> data, bool end_stream)>;
     using priority_callback = std::function<void(uint32_t stream_id, uint32_t dependency, uint8_t weight, bool exclusive)>;
     using rst_stream_callback = std::function<void(uint32_t stream_id, h2_error_code error_code)>;
-    using settings_callback = std::function<void(const std::unordered_map<uint16_t, uint32_t>& settings, bool ack)>;
-    using push_promise_callback = std::function<void(uint32_t stream_id, uint32_t promised_stream_id, const std::vector<header>& headers)>;
-    using ping_callback = std::function<void(std::span<const uint8_t, 8> data, bool ack)>;
-    using goaway_callback = std::function<void(uint32_t last_stream_id, h2_error_code error_code, std::string_view debug_data)>;
+    using settings_callback = std::function<void(const std::vector<setting>& settings)>;
+    using push_promise_callback = std::function<void(uint32_t stream_id, uint32_t promised_stream_id, const std::vector<::co::http::header>& headers)>;
+    using ping_callback = std::function<void(const std::array<uint8_t, 8>& data, bool ack)>;
+    using goaway_callback = std::function<void(uint32_t last_stream_id, h2_error_code error_code, std::span<const uint8_t> debug_data)>;
     using window_update_callback = std::function<void(uint32_t stream_id, uint32_t window_size_increment)>;
     using continuation_callback = std::function<void(uint32_t stream_id, std::span<const uint8_t> header_block_fragment, bool end_headers)>;
     using connection_error_callback = std::function<void(h2_error_code error_code, std::string_view debug_info)>;
+    using error_callback = std::function<void(h2_error_code error_code, const std::string& description)>;
+    using unknown_frame_callback = std::function<void(const frame_header& header, std::span<const uint8_t> payload)>;
 
     frame_processor(std::unique_ptr<stream_manager> stream_mgr = std::make_unique<stream_manager>());
     ~frame_processor() = default;
@@ -52,6 +54,8 @@ public:
     void set_window_update_callback(window_update_callback callback) { window_update_callback_ = std::move(callback); }
     void set_continuation_callback(continuation_callback callback) { continuation_callback_ = std::move(callback); }
     void set_connection_error_callback(connection_error_callback callback) { connection_error_callback_ = std::move(callback); }
+    void set_error_callback(error_callback callback) { error_callback_ = std::move(callback); }
+    void set_unknown_frame_callback(unknown_frame_callback callback) { unknown_frame_callback_ = std::move(callback); }
 
     // =============================================================================
     // Frame Processing
@@ -59,6 +63,9 @@ public:
 
     // Process incoming frame data
     std::expected<size_t, h2_error_code> process_frames(std::span<const uint8_t> data);
+    
+    // Process single frame or partial frame data
+    std::expected<size_t, h2_error_code> process_frame(std::span<const uint8_t> data) { return process_frames(data); }
 
     // Process connection preface
     std::expected<size_t, h2_error_code> process_connection_preface(std::span<const uint8_t> data);
@@ -181,6 +188,8 @@ private:
     window_update_callback window_update_callback_;
     continuation_callback continuation_callback_;
     connection_error_callback connection_error_callback_;
+    error_callback error_callback_;
+    unknown_frame_callback unknown_frame_callback_;
 
     // Statistics
     stats stats_;

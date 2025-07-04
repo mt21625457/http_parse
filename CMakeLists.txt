@@ -17,13 +17,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 include_directories(${LIBBASE_BASE}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-set(example_src 
-    example/comprehensive_example.cpp
-    example/http1_example.cpp
-    example/http2_example.cpp
-)
-
-add_executable(http_parse ${example_src})
+# Create separate executables for each example
+add_executable(comprehensive_example example/comprehensive_example.cpp)
+add_executable(http1_example example/http1_example.cpp)
+add_executable(http2_example example/http2_example.cpp)
 
 
 

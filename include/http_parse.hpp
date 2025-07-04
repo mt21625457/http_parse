@@ -357,6 +357,10 @@ using response_parser = stream_parser<response>;
  *   .json_body(R"({"name": "user"})")
  *   .build();
  */
+// Import builders from main namespace
+using request_builder = ::co::http::request_builder;
+using response_builder = ::co::http::response_builder;
+
 inline request_builder request() { return request_builder{}; }
 
 /**
@@ -1111,29 +1115,29 @@ private:
         });
 
     processor_.set_settings_callback(
-        [this](const std::unordered_map<uint16_t, uint32_t> &settings,
-               bool ack) {
-          if (!ack && on_settings_) {
+        [this](const std::vector<v2::setting> &settings) {
+          if (on_settings_) {
             v2::connection_settings conn_settings = processor_.get_settings();
-            for (const auto &[id, value] : settings) {
-              conn_settings.apply_setting(id, value);
+            for (const auto &setting : settings) {
+              conn_settings.apply_setting(setting.id, setting.value);
             }
             on_settings_(conn_settings);
           }
         });
 
     processor_.set_ping_callback(
-        [this](std::span<const uint8_t, 8> data, bool ack) {
+        [this](const std::array<uint8_t, 8>& data, bool ack) {
           if (on_ping_) {
-            on_ping_(data, ack);
+            on_ping_(std::span<const uint8_t, 8>(data), ack);
           }
         });
 
     processor_.set_goaway_callback([this](uint32_t last_stream_id,
                                           v2::h2_error_code error_code,
-                                          std::string_view debug_data) {
+                                          std::span<const uint8_t> debug_data) {
       if (on_goaway_) {
-        on_goaway_(last_stream_id, error_code, debug_data);
+        std::string_view debug_str(reinterpret_cast<const char*>(debug_data.data()), debug_data.size());
+        on_goaway_(last_stream_id, error_code, debug_str);
       }
     });
 

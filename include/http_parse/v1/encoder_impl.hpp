@@ -3,6 +3,7 @@
 #include "encoder.hpp"
 #include "../detail/core_impl.hpp"
 #include <sstream>
+#include <algorithm>
 
 namespace co::http::v1 {
 
@@ -26,7 +27,9 @@ inline std::string encode_http1_request(const request& req, version ver) {
     
     // Headers
     for (const auto& header : req.headers) {
-        oss << header.name << ": " << header.value << "\r\n";
+        std::string lower_name = header.name;
+        std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), [](unsigned char c){ return std::tolower(c); });
+        oss << lower_name << ": " << header.value << "\r\n";
     }
     
     // Add content-length if body exists and not already set
@@ -58,7 +61,9 @@ inline std::string encode_http1_response(const response& resp, version ver) {
     
     // Headers
     for (const auto& header : resp.headers) {
-        oss << header.name << ": " << header.value << "\r\n";
+        std::string lower_name = header.name;
+        std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), [](unsigned char c){ return std::tolower(c); });
+        oss << lower_name << ": " << header.value << "\r\n";
     }
     
     // Add content-length if body exists and not already set

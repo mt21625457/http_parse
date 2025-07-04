@@ -367,7 +367,8 @@ inline std::expected<void, h2_error_code> frame_processor::process_settings_fram
         
         // Call callback
         if (settings_callback_) {
-            settings_callback_({}, true);
+            std::vector<setting> empty_settings;
+            settings_callback_(empty_settings);
         }
         
         return {};
@@ -404,7 +405,11 @@ inline std::expected<void, h2_error_code> frame_processor::process_settings_fram
     
     // Call callback
     if (settings_callback_) {
-        settings_callback_(settings, false);
+        std::vector<setting> setting_list;
+        for (const auto& [id, value] : settings) {
+            setting_list.push_back({id, value});
+        }
+        settings_callback_(setting_list);
     }
     
     return {};
@@ -513,8 +518,335 @@ inline const connection_settings& frame_processor::get_settings() const noexcept
     return stream_manager_->get_settings();
 }
 
-// Additional frame processors can be added here...
-// For brevity, I'm showing the key ones. The full implementation would include
-// all frame types: priority, rst_stream, push_promise, ping, goaway, window_update, continuation
+inline std::expected<void, h2_error_code> frame_processor::process_priority_frame(const frame_header& header, std::span<const uint8_t> payload) {
+    if (header.stream_id == 0) {
+        return std::unexpected{h2_error_code::protocol_error};
+    }
+    
+    if (payload.size() != 5) {
+        return std::unexpected{h2_error_code::frame_size_error};
+    }
+    
+    uint32_t stream_dependency = (static_cast<uint32_t>(payload[0]) << 24) |
+                                (static_cast<uint32_t>(payload[1]) << 16) |
+                                (static_cast<uint32_t>(payload[2]) << 8) |
+                                static_cast<uint32_t>(payload[3]);
+    
+    bool exclusive = (stream_dependency & 0x80000000) != 0;
+    stream_dependency &= 0x7FFFFFFF;
+    uint8_t weight = payload[4];
+    
+    stream_manager_->set_stream_priority(header.stream_id, stream_dependency, weight, exclusive);
+    
+    return {};
+}
+
+inline std::expected<void, h2_error_code> frame_processor::process_rst_stream_frame(const frame_header& header, std::span<const uint8_t> payload) {
+    if (header.stream_id == 0) {
+        return std::unexpected{h2_error_code::protocol_error};
+    }
+    
+    if (payload.size() != 4) {
+        return std::unexpected{h2_error_code::frame_size_error};
+    }
+    
+    uint32_t error_code = (static_cast<uint32_t>(payload[0]) << 24) |
+                         (static_cast<uint32_t>(payload[1]) << 16) |
+                         (static_cast<uint32_t>(payload[2]) << 8) |
+                         static_cast<uint32_t>(payload[3]);
+    
+    stream_manager_->close_stream(header.stream_id, static_cast<h2_error_code>(error_code));
+    
+    if (error_callback_) {
+        error_callback_(static_cast<h2_error_code>(error_code), "RST_STREAM frame received");
+    }
+    
+    return {};
+}
+
+inline std::expected<void, h2_error_code> frame_processor::process_push_promise_frame(const frame_header& header, std::span<const uint8_t> payload) {
+    if (header.stream_id == 0) {
+        return std::unexpected{h2_error_code::protocol_error};
+    }
+    
+    if (payload.size() < 4) {
+        return std::unexpected{h2_error_code::frame_size_error};
+    }
+    
+    uint32_t promised_stream_id = (static_cast<uint32_t>(payload[0]) << 24) |
+                                 (static_cast<uint32_t>(payload[1]) << 16) |
+                                 (static_cast<uint32_t>(payload[2]) << 8) |
+                                 static_cast<uint32_t>(payload[3]);
+    
+    promised_stream_id &= 0x7FFFFFFF;
+    
+    auto headers_payload = payload.subspan(4);
+    
+    // Decode headers using HPACK
+    auto decoded_headers = hpack_decoder_.decode_headers(headers_payload);
+    if (!decoded_headers) {
+        return std::unexpected{h2_error_code::compression_error};
+    }
+    
+    if (push_promise_callback_) {
+        push_promise_callback_(header.stream_id, promised_stream_id, *decoded_headers);
+    }
+    
+    return {};
+}
+
+inline std::expected<void, h2_error_code> frame_processor::process_ping_frame(const frame_header& header, std::span<const uint8_t> payload) {
+    if (header.stream_id != 0) {
+        return std::unexpected{h2_error_code::protocol_error};
+    }
+    
+    if (payload.size() != 8) {
+        return std::unexpected{h2_error_code::frame_size_error};
+    }
+    
+    bool ack = header.flags & static_cast<uint8_t>(frame_flags::ack);
+    
+    if (ping_callback_) {
+        std::array<uint8_t, 8> ping_data{};
+        std::copy_n(payload.data(), std::min(payload.size(), size_t(8)), ping_data.data());
+        ping_callback_(ping_data, ack);
+    }
+    
+    return {};
+}
+
+inline std::expected<void, h2_error_code> frame_processor::process_goaway_frame(const frame_header& header, std::span<const uint8_t> payload) {
+    if (header.stream_id != 0) {
+        return std::unexpected{h2_error_code::protocol_error};
+    }
+    
+    if (payload.size() < 8) {
+        return std::unexpected{h2_error_code::frame_size_error};
+    }
+    
+    uint32_t last_stream_id = (static_cast<uint32_t>(payload[0]) << 24) |
+                             (static_cast<uint32_t>(payload[1]) << 16) |
+                             (static_cast<uint32_t>(payload[2]) << 8) |
+                             static_cast<uint32_t>(payload[3]);
+    
+    last_stream_id &= 0x7FFFFFFF;
+    
+    uint32_t error_code = (static_cast<uint32_t>(payload[4]) << 24) |
+                         (static_cast<uint32_t>(payload[5]) << 16) |
+                         (static_cast<uint32_t>(payload[6]) << 8) |
+                         static_cast<uint32_t>(payload[7]);
+    
+    auto debug_data = payload.subspan(8);
+    
+    if (goaway_callback_) {
+        goaway_callback_(last_stream_id, static_cast<h2_error_code>(error_code), debug_data);
+    }
+    
+    return {};
+}
+
+inline std::expected<void, h2_error_code> frame_processor::process_window_update_frame(const frame_header& header, std::span<const uint8_t> payload) {
+    if (payload.size() != 4) {
+        return std::unexpected{h2_error_code::frame_size_error};
+    }
+    
+    uint32_t window_size_increment = (static_cast<uint32_t>(payload[0]) << 24) |
+                                    (static_cast<uint32_t>(payload[1]) << 16) |
+                                    (static_cast<uint32_t>(payload[2]) << 8) |
+                                    static_cast<uint32_t>(payload[3]);
+    
+    window_size_increment &= 0x7FFFFFFF;
+    
+    if (window_size_increment == 0) {
+        return std::unexpected{h2_error_code::protocol_error};
+    }
+    
+    auto result = stream_manager_->update_stream_window(header.stream_id, window_size_increment);
+    if (!result) {
+        return std::unexpected{result.error()};
+    }
+    
+    return {};
+}
+
+inline std::expected<void, h2_error_code> frame_processor::process_continuation_frame(const frame_header& header, std::span<const uint8_t> payload) {
+    if (header.stream_id == 0) {
+        return std::unexpected{h2_error_code::protocol_error};
+    }
+    
+    if (!expecting_continuation_ || header.stream_id != continuation_stream_id_) {
+        return std::unexpected{h2_error_code::protocol_error};
+    }
+    
+    header_block_buffer_.insert(header_block_buffer_.end(), payload.begin(), payload.end());
+    
+    bool end_headers = header.flags & static_cast<uint8_t>(frame_flags::end_headers);
+    
+    if (end_headers) {
+        auto decoded_headers = hpack_decoder_.decode_headers(header_block_buffer_);
+        if (!decoded_headers) {
+            return std::unexpected{h2_error_code::compression_error};
+        }
+        
+        if (headers_callback_) {
+            headers_callback_(header.stream_id, *decoded_headers, false, false);
+        }
+        
+        header_block_buffer_.clear();
+        expecting_continuation_ = false;
+        continuation_stream_id_ = 0;
+        state_ = processing_state::expecting_header;
+    }
+    
+    return {};
+}
+
+inline std::expected<size_t, h2_error_code> frame_processor::generate_connection_preface(output_buffer& buffer) {
+    buffer.append(connection_preface);
+    return connection_preface.size();
+}
+
+inline std::expected<size_t, h2_error_code> frame_processor::generate_headers_frame(uint32_t stream_id, const std::vector<header>& headers, bool end_stream, bool end_headers, output_buffer& buffer) {
+    output_buffer temp_buffer;
+    auto result = hpack_encoder_.encode_headers(headers, temp_buffer);
+    if (!result) {
+        return std::unexpected{h2_error_code::compression_error};
+    }
+    auto encoded_headers = temp_buffer.span();
+    
+    frame_header header;
+    header.length = encoded_headers.size();
+    header.type = static_cast<uint8_t>(frame_type::headers);
+    header.flags = 0;
+    if (end_stream) header.flags |= static_cast<uint8_t>(frame_flags::end_stream);
+    if (end_headers) header.flags |= static_cast<uint8_t>(frame_flags::end_headers);
+    header.stream_id = stream_id;
+    
+    buffer.append(header.serialize());
+    buffer.append(encoded_headers);
+    return frame_header::size + encoded_headers.size();
+}
+
+inline std::expected<size_t, h2_error_code> frame_processor::generate_data_frame(uint32_t stream_id, std::span<const uint8_t> data, bool end_stream, output_buffer& buffer) {
+    frame_header header;
+    header.length = data.size();
+    header.type = static_cast<uint8_t>(frame_type::data);
+    header.flags = 0;
+    if (end_stream) header.flags |= static_cast<uint8_t>(frame_flags::end_stream);
+    header.stream_id = stream_id;
+    
+    buffer.append(header.serialize());
+    buffer.append(data);
+    return frame_header::size + data.size();
+}
+
+// Additional missing method implementations
+inline std::expected<size_t, h2_error_code> frame_processor::generate_settings_frame(const std::unordered_map<uint16_t, uint32_t>& settings, bool ack, output_buffer& buffer) {
+    frame_header header;
+    header.length = ack ? 0 : settings.size() * 6;
+    header.type = static_cast<uint8_t>(frame_type::settings);
+    header.flags = ack ? static_cast<uint8_t>(frame_flags::ack) : 0;
+    header.stream_id = 0;
+    
+    buffer.append(header.serialize());
+    
+    if (!ack) {
+        for (const auto& [id, value] : settings) {
+            uint8_t setting_data[6];
+            setting_data[0] = static_cast<uint8_t>((id >> 8) & 0xFF);
+            setting_data[1] = static_cast<uint8_t>(id & 0xFF);
+            setting_data[2] = static_cast<uint8_t>((value >> 24) & 0xFF);
+            setting_data[3] = static_cast<uint8_t>((value >> 16) & 0xFF);
+            setting_data[4] = static_cast<uint8_t>((value >> 8) & 0xFF);
+            setting_data[5] = static_cast<uint8_t>(value & 0xFF);
+            buffer.append(std::span<const uint8_t>(setting_data, 6));
+        }
+    }
+    
+    return frame_header::size + header.length;
+}
+
+inline std::expected<size_t, h2_error_code> frame_processor::generate_ping_frame(std::span<const uint8_t, 8> data, bool ack, output_buffer& buffer) {
+    frame_header header;
+    header.length = 8;
+    header.type = static_cast<uint8_t>(frame_type::ping);
+    header.flags = ack ? static_cast<uint8_t>(frame_flags::ack) : 0;
+    header.stream_id = 0;
+    
+    buffer.append(header.serialize());
+    buffer.append(std::span<const uint8_t>(data.data(), 8));
+    
+    return frame_header::size + 8;
+}
+
+inline std::expected<size_t, h2_error_code> frame_processor::generate_goaway_frame(uint32_t last_stream_id, h2_error_code error_code, std::string_view debug_data, output_buffer& buffer) {
+    frame_header header;
+    header.length = 8 + debug_data.size();
+    header.type = static_cast<uint8_t>(frame_type::goaway);
+    header.flags = 0;
+    header.stream_id = 0;
+    
+    buffer.append(header.serialize());
+    
+    // Last stream ID (31 bits)
+    uint8_t goaway_data[8];
+    goaway_data[0] = static_cast<uint8_t>((last_stream_id >> 24) & 0x7F);
+    goaway_data[1] = static_cast<uint8_t>((last_stream_id >> 16) & 0xFF);
+    goaway_data[2] = static_cast<uint8_t>((last_stream_id >> 8) & 0xFF);
+    goaway_data[3] = static_cast<uint8_t>(last_stream_id & 0xFF);
+    
+    // Error code
+    uint32_t error_val = static_cast<uint32_t>(error_code);
+    goaway_data[4] = static_cast<uint8_t>((error_val >> 24) & 0xFF);
+    goaway_data[5] = static_cast<uint8_t>((error_val >> 16) & 0xFF);
+    goaway_data[6] = static_cast<uint8_t>((error_val >> 8) & 0xFF);
+    goaway_data[7] = static_cast<uint8_t>(error_val & 0xFF);
+    
+    buffer.append(std::span<const uint8_t>(goaway_data, 8));
+    buffer.append(debug_data);
+    
+    return frame_header::size + header.length;
+}
+
+inline std::expected<size_t, h2_error_code> frame_processor::generate_window_update_frame(uint32_t stream_id, uint32_t window_size_increment, output_buffer& buffer) {
+    frame_header header;
+    header.length = 4;
+    header.type = static_cast<uint8_t>(frame_type::window_update);
+    header.flags = 0;
+    header.stream_id = stream_id;
+    
+    buffer.append(header.serialize());
+    
+    uint8_t increment_data[4];
+    increment_data[0] = static_cast<uint8_t>((window_size_increment >> 24) & 0x7F); // Clear reserved bit
+    increment_data[1] = static_cast<uint8_t>((window_size_increment >> 16) & 0xFF);
+    increment_data[2] = static_cast<uint8_t>((window_size_increment >> 8) & 0xFF);
+    increment_data[3] = static_cast<uint8_t>(window_size_increment & 0xFF);
+    
+    buffer.append(std::span<const uint8_t>(increment_data, 4));
+    
+    return frame_header::size + 4;
+}
+
+inline std::expected<size_t, h2_error_code> frame_processor::generate_rst_stream_frame(uint32_t stream_id, h2_error_code error_code, output_buffer& buffer) {
+    frame_header header;
+    header.length = 4;
+    header.type = static_cast<uint8_t>(frame_type::rst_stream);
+    header.flags = 0;
+    header.stream_id = stream_id;
+    
+    buffer.append(header.serialize());
+    
+    uint32_t error_val = static_cast<uint32_t>(error_code);
+    uint8_t error_data[4];
+    error_data[0] = static_cast<uint8_t>((error_val >> 24) & 0xFF);
+    error_data[1] = static_cast<uint8_t>((error_val >> 16) & 0xFF);
+    error_data[2] = static_cast<uint8_t>((error_val >> 8) & 0xFF);
+    error_data[3] = static_cast<uint8_t>(error_val & 0xFF);
+    
+    buffer.append(std::span<const uint8_t>(error_data, 4));
+    
+    return frame_header::size + 4;
+}
 
 } // namespace co::http::v2

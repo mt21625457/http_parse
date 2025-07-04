@@ -114,11 +114,23 @@ struct frame_header {
         data[7] = static_cast<uint8_t>((stream_id >> 8) & 0xFF);
         data[8] = static_cast<uint8_t>(stream_id & 0xFF);
     }
+    
+    // Serialize frame header to vector
+    std::vector<uint8_t> serialize() const noexcept {
+        std::vector<uint8_t> data(size);
+        serialize(data.data());
+        return data;
+    }
 };
 
 // =============================================================================
 // HTTP/2 Settings Frame
 // =============================================================================
+
+struct setting {
+    uint16_t id;
+    uint32_t value;
+};
 
 struct settings_frame {
     std::unordered_map<uint16_t, uint32_t> settings;
