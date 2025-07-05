@@ -55,13 +55,13 @@ TEST_F(Http1ParserTest, ParseSimpleGetRequest) {
 }
 
 TEST_F(Http1ParserTest, ParsePostRequestWithBody) {
+    std::string body_content = R"({"name": "张三", "email": "zhang@example.com"})";
     std::string request_data = 
         "POST /api/users HTTP/1.1\r\n"
         "Host: api.example.com\r\n"
         "Content-Type: application/json\r\n"
-        "Content-Length: 45\r\n"
-        "\r\n"
-        R"({"name": "张三", "email": "zhang@example.com"})";
+        "Content-Length: " + std::to_string(body_content.size()) + "\r\n"
+        "\r\n" + body_content;
     
     auto result = http1::parse_request(request_data);
     
@@ -70,8 +70,8 @@ TEST_F(Http1ParserTest, ParsePostRequestWithBody) {
     
     EXPECT_EQ(req.method_type, method::post);
     EXPECT_EQ(req.target, "/api/users");
-    EXPECT_EQ(req.body, R"({"name": "张三", "email": "zhang@example.com"})");
-    EXPECT_EQ(req.body.size(), 45);
+    EXPECT_EQ(req.body, body_content);
+    EXPECT_EQ(req.body.size(), body_content.size());
 }
 
 TEST_F(Http1ParserTest, ParseAllHttpMethods) {
@@ -110,6 +110,7 @@ TEST_F(Http1ParserTest, ParseComplexUri) {
 }
 
 TEST_F(Http1ParserTest, ParseRequestWithManyHeaders) {
+    std::string body_content = "multipart body data here...";
     std::string request_data = 
         "POST /api/upload HTTP/1.1\r\n"
         "Host: upload.example.com\r\n"
@@ -118,21 +119,20 @@ TEST_F(Http1ParserTest, ParseRequestWithManyHeaders) {
         "Accept-Language: zh-CN,zh;q=0.8,en-US;q=0.5,en;q=0.3\r\n"
         "Accept-Encoding: gzip, deflate, br\r\n"
         "Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW\r\n"
-        "Content-Length: 1024\r\n"
+        "Content-Length: " + std::to_string(body_content.size()) + "\r\n"
         "Connection: keep-alive\r\n"
         "Upgrade-Insecure-Requests: 1\r\n"
         "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\r\n"
         "X-Requested-With: XMLHttpRequest\r\n"
         "X-Custom-Header: custom-value\r\n"
-        "\r\n"
-        "multipart body data here...";
+        "\r\n" + body_content;
     
     auto result = http1::parse_request(request_data);
     
     ASSERT_TRUE(result.has_value());
     const auto& req = result.value();
     
-    EXPECT_EQ(req.headers.size(), 11);
+    EXPECT_EQ(req.headers.size(), 12); // Including Content-Length
     EXPECT_EQ(req.body, "multipart body data here...");
     
     // 验证特定头部
@@ -155,13 +155,13 @@ TEST_F(Http1ParserTest, ParseRequestWithManyHeaders) {
 // =============================================================================
 
 TEST_F(Http1ParserTest, ParseSimpleResponse) {
+    std::string body_content = R"({"status": "ok"})";
     std::string response_data = 
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: application/json\r\n"
-        "Content-Length: 17\r\n"
+        "Content-Length: " + std::to_string(body_content.size()) + "\r\n"
         "Server: TestServer/1.0\r\n"
-        "\r\n"
-        R"({"status": "ok"})";
+        "\r\n" + body_content;
     
     auto result = http1::parse_response(response_data);
     
@@ -171,7 +171,7 @@ TEST_F(Http1ParserTest, ParseSimpleResponse) {
     EXPECT_EQ(resp.status_code, 200);
     EXPECT_EQ(resp.reason_phrase, "OK");
     EXPECT_EQ(resp.protocol_version, version::http_1_1);
-    EXPECT_EQ(resp.body, R"({"status": "ok"})");
+    EXPECT_EQ(resp.body, body_content);
     EXPECT_EQ(resp.headers.size(), 3);
     
     // 检查Content-Type头部
@@ -352,7 +352,7 @@ TEST_F(Http1ParserTest, StreamingParserIncremental) {
     
     // 分块发送数据
     std::vector<std::string> chunks = {
-        "GET /api/test HTTP/1.1\r\n",
+        "POST /api/test HTTP/1.1\r\n",
         "Host: api.example.com\r\n",
         "Content-Length: 11\r\n",
         "\r\n",
@@ -373,7 +373,7 @@ TEST_F(Http1ParserTest, StreamingParserIncremental) {
     }
     
     EXPECT_TRUE(parser.is_complete());
-    EXPECT_EQ(req.method_type, method::get);
+    EXPECT_EQ(req.method_type, method::post);
     EXPECT_EQ(req.target, "/api/test");
     EXPECT_EQ(req.body, "hello world");
 }

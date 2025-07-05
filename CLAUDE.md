@@ -7,13 +7,7 @@
 
 ## 构建命令
 - `./build_libcxx.sh`: 构建项目（使用libc++，默认Release模式）
-- `./build_libcxx.sh --debug`: 调试模式构建并运行测试
-- `./build_libcxx.sh --test`: 构建后运行测试
-- `./build_libcxx.sh --clean`: 清理构建目录
-- `./build_libcxx.sh --jobs=8`: 使用8个并行任务构建
-- `cmake --preset cxx23`: 使用C++23预设配置（可选）
-- `cmake --build --preset cxx23`: 构建C++23版本（可选）
-- `ctest --preset cxx23`: 运行测试（可选）
+
 
 ## 项目结构
 - `include/`: 头文件目录

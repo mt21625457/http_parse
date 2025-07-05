@@ -130,7 +130,8 @@ parse_response(std::string_view data) {
  */
 inline std::expected<std::string, error_code>
 encode_request(const request &req) {
-  encoder enc(version::http_1_1);
+  v1::encoder enc;
+  enc.set_version(version::http_1_1);
   return enc.encode_request(req);
 }
 
@@ -157,7 +158,8 @@ encode_request(const request &req) {
  */
 inline std::expected<std::string, error_code>
 encode_response(const response &resp) {
-  encoder enc(version::http_1_1);
+  v1::encoder enc;
+  enc.set_version(version::http_1_1);
   return enc.encode_response(resp);
 }
 
@@ -184,7 +186,8 @@ encode_response(const response &resp) {
  */
 inline std::expected<size_t, error_code> encode_request(const request &req,
                                                         output_buffer &buffer) {
-  encoder enc(version::http_1_1);
+  v1::encoder enc;
+  enc.set_version(version::http_1_1);
   return enc.encode_request(req, buffer);
 }
 
@@ -205,7 +208,8 @@ inline std::expected<size_t, error_code> encode_request(const request &req,
  */
 inline std::expected<size_t, error_code>
 encode_response(const response &resp, output_buffer &buffer) {
-  encoder enc(version::http_1_1);
+  v1::encoder enc;
+  enc.set_version(version::http_1_1);
   return enc.encode_response(resp, buffer);
 }
 

@@ -11,10 +11,15 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Disable LTO to avoid linker issues
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
 
-# set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${LIBBASE_BASE}/lib/cmake)
+# Include directories
+if(LIBBASE_BASE)
+    include_directories(${LIBBASE_BASE}/include)
+    set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} ${LIBBASE_BASE}/lib/cmake)
+endif()
 
-include_directories(${LIBBASE_BASE}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # Create separate executables for each example

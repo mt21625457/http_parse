@@ -159,7 +159,7 @@ TEST_F(Http1EncoderTest, EncodeSimpleResponse) {
     resp.reason_phrase = "OK";
     resp.add_header("content-type", "application/json");
     resp.add_header("server", "TestServer/1.0");
-    resp.add_header("content-length", "17");
+    resp.add_header("content-length", "16");
     resp.body = R"({"status": "ok"})";
     
     auto result = http1::encode_response(resp);
@@ -169,7 +169,7 @@ TEST_F(Http1EncoderTest, EncodeSimpleResponse) {
         "HTTP/1.1 200 OK\r\n"
         "content-type: application/json\r\n"
         "server: TestServer/1.0\r\n"
-        "content-length: 17\r\n"
+        "content-length: 16\r\n"
         "\r\n"
         R"({"status": "ok"})";
     

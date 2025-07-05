@@ -17,7 +17,8 @@ inline std::string encode_http1_request(const request& req, version ver) {
     std::ostringstream oss;
     
     // Request line
-    oss << req.get_method_string() << " " << req.uri << " ";
+    std::string path = req.target.empty() ? req.uri : req.target;
+    oss << req.get_method_string() << " " << path << " ";
     switch (ver) {
         case version::http_1_0: oss << "HTTP/1.0"; break;
         case version::http_1_1: oss << "HTTP/1.1"; break;

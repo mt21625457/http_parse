@@ -17,15 +17,3 @@ public:
     }
 };
 
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    
-    // 添加全局测试环境
-    ::testing::AddGlobalTestEnvironment(new HttpParseTestEnvironment);
-    
-    // 设置测试输出格式
-    ::testing::FLAGS_gtest_color = "yes";
-    ::testing::FLAGS_gtest_print_time = true;
-    
-    return RUN_ALL_TESTS();
-}

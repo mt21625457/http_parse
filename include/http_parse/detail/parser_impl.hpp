@@ -39,6 +39,7 @@ public:
     size_t body_bytes_read_ = 0;
     bool chunked_encoding_ = false;
     bool connection_close_ = false;
+    std::unique_ptr<std::string> buffer_; // For incremental parsing
     
     // HTTP/2 callbacks
     parser::stream_request_callback stream_request_cb_;
@@ -68,6 +69,7 @@ public:
         body_bytes_read_ = 0;
         chunked_encoding_ = false;
         connection_close_ = false;
+        buffer_.reset();
     }
 };
 
@@ -144,13 +146,18 @@ inline std::expected<request, error_code> parse_http1_request(std::string_view d
     }
     req.set_method(method_str);
     
+    // Check if method is valid
+    if (req.method_type == method::unknown) {
+        return std::unexpected(error_code::invalid_method);
+    }
+    
     // Parse URI
     auto [uri_str, version_str] = split_first(rest1, ' ');
     if (version_str.empty()) {
         return std::unexpected(error_code::invalid_uri);
     }
-    req.uri = uri_str;
-    req.target = uri_str; // For HTTP/2 compatibility
+    req.uri = std::string(uri_str);
+    req.target = std::string(uri_str); // For HTTP/2 compatibility
     
     // Parse version
     if (version_str == "HTTP/1.0") {
@@ -163,6 +170,8 @@ inline std::expected<request, error_code> parse_http1_request(std::string_view d
     
     // Parse headers
     size_t pos = line_end + 2;
+    bool headers_complete = false;
+    
     while (pos < data.size()) {
         auto header_line_end = data.find("\r\n", pos);
         if (header_line_end == std::string_view::npos) {
@@ -173,6 +182,7 @@ inline std::expected<request, error_code> parse_http1_request(std::string_view d
         if (header_line.empty()) {
             // Empty line indicates end of headers
             pos = header_line_end + 2;
+            headers_complete = true;
             break;
         }
         
@@ -185,25 +195,31 @@ inline std::expected<request, error_code> parse_http1_request(std::string_view d
         pos = header_line_end + 2;
     }
     
+    // If we haven't found the end of headers, we need more data
+    if (!headers_complete) {
+        return std::unexpected(error_code::need_more_data);
+    }
+    
     // Parse body if present
-    if (pos < data.size()) {
-        auto content_length_hdr = req.get_header("content-length");
-        if (content_length_hdr) {
-            size_t content_length;
-            auto result = std::from_chars(content_length_hdr->data(), 
-                                        content_length_hdr->data() + content_length_hdr->size(), 
-                                        content_length);
-            if (result.ec == std::errc{}) {
+    auto content_length_hdr = req.get_header("content-length");
+    if (content_length_hdr) {
+        size_t content_length;
+        auto result = std::from_chars(content_length_hdr->data(), 
+                                    content_length_hdr->data() + content_length_hdr->size(), 
+                                    content_length);
+        if (result.ec == std::errc{}) {
+            if (content_length > 0) {
                 if (data.size() - pos >= content_length) {
                     req.body = std::string(data.substr(pos, content_length));
                 } else {
                     return std::unexpected(error_code::need_more_data);
                 }
             }
-        } else {
-            // No content-length, assume rest is body
-            req.body = std::string(data.substr(pos));
+            // If content_length is 0, body is empty (valid)
         }
+    } else if (pos < data.size()) {
+        // No content-length, assume rest is body
+        req.body = std::string(data.substr(pos));
     }
     
     return req;
@@ -348,17 +364,34 @@ inline std::expected<response, error_code> parser::parse_response(std::string_vi
 }
 
 inline std::expected<size_t, error_code> parser::parse_request_incremental(std::span<const char> data, request& req) {
-    std::string_view data_view{data.data(), data.size()};
+    if (pimpl_->parse_complete_) {
+        return 0; // Already complete
+    }
+    
+    // Accumulate data in buffer
+    if (!pimpl_->buffer_) {
+        pimpl_->buffer_ = std::make_unique<std::string>();
+    }
+    
+    size_t start_size = pimpl_->buffer_->size();
+    pimpl_->buffer_->append(data.data(), data.size());
+    
+    // Try to parse the accumulated data
+    std::string_view data_view{*pimpl_->buffer_};
     auto result = detail::parse_http1_request(data_view);
+    
     if (result) {
         req = std::move(*result);
         pimpl_->parse_complete_ = true;
-        return data.size();
+        pimpl_->needs_more_data_ = false;
+        return data.size(); // All input data consumed
     } else {
         if (result.error() == error_code::need_more_data) {
             pimpl_->needs_more_data_ = true;
+            return data.size(); // Consumed all data, waiting for more
+        } else {
+            return std::unexpected(result.error());
         }
-        return std::unexpected(result.error());
     }
 }
 

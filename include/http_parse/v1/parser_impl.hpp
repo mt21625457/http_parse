@@ -52,14 +52,19 @@ parse_http1_request(std::string_view data) {
     return std::unexpected(error_code::invalid_method);
   }
   req.set_method(method_str);
+  
+  // Check if method is valid
+  if (req.method_type == method::unknown) {
+    return std::unexpected(error_code::invalid_method);
+  }
 
   // Parse URI
   auto [uri_str, version_str] = split_first(rest1, ' ');
   if (version_str.empty()) {
     return std::unexpected(error_code::invalid_uri);
   }
-  req.uri = uri_str;
-  req.target = uri_str; // For HTTP/2 compatibility
+  req.uri = std::string(uri_str);
+  req.target = std::string(uri_str); // For HTTP/2 compatibility
 
   // Parse version
   if (version_str == "HTTP/1.0") {
@@ -72,6 +77,8 @@ parse_http1_request(std::string_view data) {
 
   // Parse headers
   size_t pos = line_end + 2;
+  bool headers_complete = false;
+  
   while (pos < data.size()) {
     auto header_line_end = data.find("\r\n", pos);
     if (header_line_end == std::string_view::npos) {
@@ -82,6 +89,7 @@ parse_http1_request(std::string_view data) {
     if (header_line.empty()) {
       // Empty line indicates end of headers
       pos = header_line_end + 2;
+      headers_complete = true;
       break;
     }
 
@@ -97,27 +105,33 @@ parse_http1_request(std::string_view data) {
     req.add_header(norm_name, std::string(trim(value)));
     pos = header_line_end + 2;
   }
+  
+  // If we haven't found the end of headers, we need more data
+  if (!headers_complete) {
+    return std::unexpected(error_code::need_more_data);
+  }
 
   // Parse body if present
-  if (pos < data.size()) {
-    auto content_length_hdr = req.get_header("content-length");
-    if (content_length_hdr) {
-      size_t content_length;
-      auto result = std::from_chars(content_length_hdr->data(),
-                                    content_length_hdr->data() +
-                                        content_length_hdr->size(),
-                                    content_length);
-      if (result.ec == std::errc{}) {
+  auto content_length_hdr = req.get_header("content-length");
+  if (content_length_hdr) {
+    size_t content_length;
+    auto result = std::from_chars(content_length_hdr->data(),
+                                  content_length_hdr->data() +
+                                      content_length_hdr->size(),
+                                  content_length);
+    if (result.ec == std::errc{}) {
+      if (content_length > 0) {
         if (data.size() - pos >= content_length) {
           req.body = std::string(data.substr(pos, content_length));
         } else {
           return std::unexpected(error_code::need_more_data);
         }
       }
-    } else {
-      // No content-length, assume rest is body
-      req.body = std::string(data.substr(pos));
+      // If content_length is 0, body is empty (valid)
     }
+  } else if (pos < data.size()) {
+    // No content-length, assume rest is body
+    req.body = std::string(data.substr(pos));
   }
 
   return req;
@@ -159,11 +173,13 @@ parse_http1_response(std::string_view data) {
   }
 
   if (!reason_str.empty()) {
-    resp.reason_phrase = reason_str;
+    resp.reason_phrase = std::string(reason_str);
   }
 
   // Parse headers and body (same logic as request)
   size_t pos = line_end + 2;
+  bool headers_complete = false;
+  
   while (pos < data.size()) {
     auto header_line_end = data.find("\r\n", pos);
     if (header_line_end == std::string_view::npos) {
@@ -173,6 +189,7 @@ parse_http1_response(std::string_view data) {
     auto header_line = data.substr(pos, header_line_end - pos);
     if (header_line.empty()) {
       pos = header_line_end + 2;
+      headers_complete = true;
       break;
     }
 
@@ -187,6 +204,11 @@ parse_http1_response(std::string_view data) {
                    [](unsigned char c) { return std::tolower(c); });
     resp.add_header(norm_name, std::string(trim(value)));
     pos = header_line_end + 2;
+  }
+  
+  // If we haven't found the end of headers, we need more data
+  if (!headers_complete) {
+    return std::unexpected(error_code::need_more_data);
   }
 
   // Parse body
