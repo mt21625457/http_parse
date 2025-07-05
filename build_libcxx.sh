@@ -14,7 +14,7 @@ cmake -B cmake-build-release -G Ninja \
     -DCMAKE_C_COMPILER=${CC} \
     -DCMAKE_PREFIX_PATH=${LIBBASE_BASE}/lib/cmake \
     -DLIBBASE_BASE=${LIBBASE_BASE} \
-    -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+    -DCMAKE_CXX_FLAGS="-stdlib=libc++" 
 
 
 
